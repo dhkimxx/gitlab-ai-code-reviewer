@@ -1,7 +1,7 @@
 # Gitlab AI Code Reviewer
 
 Gitlab AI Code Reviewer는 GitLab 저장소의 코드 변경 사항을 **자동으로 리뷰**해 주는 Flask 기반 웹 애플리케이션입니다.
-GitLab Webhook(머지 요청 및 푸시 이벤트)을 받아 diff를 조회하고, 선택한 LLM(OpenAI, Gemini, Ollama, OpenRouter 등)을 사용해 코드 리뷰 코멘트를 생성한 뒤, GitLab에 **마크다운 형식의 댓글**로 남깁니다.
+GitLab Webhook(머지 요청 및 푸시 이벤트)을 받아 diff를 조회하고, 선택한 LLM(OpenAI, Gemini, Ollama, OpenRouter 등)을 사용해 코드 리뷰 코멘트를 생성한 뒤, GitLab에 **마크다운 형식의 댓글**로 남깁니다. 또한 MR `open` 이벤트에서는 변경된 코드 파일 전체를 기준으로 **리팩토링 제안(1회성) 코멘트**를 별도 큐로 생성할 수 있습니다.
 
 ![sample](./docs/images/sample_v2.png)
 
@@ -31,6 +31,7 @@ GitLab Webhook은 이 엔드포인트로 이벤트를 전송해야 합니다.
 - 코드 가독성, 구조, 복잡도, 잠재적 버그 및 보안 이슈에 대한 피드백
 - GitLab에서 바로 읽기 좋은 **마크다운 형식**의 코멘트 생성
 - 머지 요청과 푸시(커밋)에 모두 대응
+- MR `open` 이벤트에서 1회성 리팩토링 제안 코멘트(별도 큐) 지원
 - LangChain 기반 LLM 추상화로 **OpenAI, Google Gemini, Ollama, OpenRouter** 중 원하는 provider 선택 가능
 
 ---
@@ -73,6 +74,20 @@ GitLab Webhook은 이 엔드포인트로 이벤트를 전송해야 합니다.
    POST {GITLAB_URL}/api/v4/projects/{project_id}/repository/commits/{commit_id}/comments
    ```
 
+### 3. 리팩토링 제안(Refactor Suggestion) 플로우 (MR open 시 1회)
+
+1. MR `action=open` 이벤트 수신 시, `(project_id, mr_iid)` 기준으로 선점(claim)하여 1회 실행만 허용
+2. 리팩토링 제안 전용 큐(기존 diff 리뷰 큐와 분리)에 작업 enqueue
+3. MR changes에서 변경 파일 목록을 얻고, 삭제 파일 제외 + 코드 파일만 필터링
+4. 각 파일의 **raw 본문**을 아래 API로 조회
+
+   ```text
+   GET {GITLAB_URL}/api/v4/projects/{project_id}/repository/files/{file_path}/raw?ref={source_ref}
+   ```
+
+5. 파일 전체 본문을 기반으로 리팩토링 제안 프롬프트를 구성해 LLM 호출
+6. 별도 MR 코멘트(`Refactor Suggestion Review`)를 등록하고 상태를 completed로 저장
+
 오류가 발생하면 콘솔에 예외를 출력하고, GitLab 댓글에 에러 메시지를 포함한 안내 문구를 남깁니다.
 
 ---
@@ -100,6 +115,7 @@ Python 의존성은 `pyproject.toml`로 관리되며, 로컬 개발 시 **uv** �
 LLM_PROVIDER=openai # LLM provider [openai (default) / gemini / ollama / openrouter]
 LLM_MODEL=gpt-5-mini # LLM 모델명 [gpt-5-mini (default) , gemini-2.5-pro, llama3, ...]
 LLM_TIMEOUT_SECONDS=300 # LLM API timeout seconds [default: 300]
+GITLAB_REQUEST_TIMEOUT_SECONDS=10 # GitLab API timeout seconds [default: 10]
 
 OPENAI_API_KEY=your-openai-api-key # provider=openai 인 경우 필요
 GOOGLE_API_KEY=your-google-api-key # provider=gemini 인 경우 필요
@@ -110,6 +126,7 @@ OPENROUTER_BASE_URL=https://openrouter.ai/api/v1 # provider=openrouter 인 경�
 GITLAB_ACCESS_TOKEN=your-gitlab-personal-access-token
 GITLAB_URL=https://gitlab.com
 GITLAB_WEBHOOK_SECRET_TOKEN=your-webhook-secret-token
+ENABLE_REFACTOR_SUGGESTION_REVIEW=true
 
 # (선택) LLM 모니터링 웹훅 설정
 # LLM_MONITORING_WEBHOOK_URL 이 설정된 경우, 각 리뷰 시도(머지 요청/푸시)에 대해 JSON payload를 POST로 전송합니다.
@@ -185,7 +202,7 @@ http://localhost:9655/webhook
 컨테이너 내부에서는 다음 커맨드로 애플리케이션이 실행됩니다.
 
 ```bash
-gunicorn --bind 0.0.0.0:9655 src.main:app
+gunicorn --bind 0.0.0.0:9655 src.app.main:app
 ```
 
 ---

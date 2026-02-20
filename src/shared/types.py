@@ -2,11 +2,7 @@ from typing import List, NotRequired, TypedDict
 
 
 class GitDiffChange(TypedDict, total=False):
-    """GitLab diff 엔트리 중 이 프로젝트에서 실제로 사용하는 필드 정의.
-
-    GitLab API 응답에는 이외에도 다양한 필드가 포함될 수 있지만,
-    여기서는 프롬프트/리뷰에 필요한 최소 필드만 모델링한다.
-    """
+    """GitLab diff entry fields used by this project."""
 
     old_path: str
     new_path: str
@@ -17,20 +13,20 @@ class GitDiffChange(TypedDict, total=False):
 
 
 class MergeRequestChangesResponse(TypedDict, total=False):
-    """MR changes API 응답에서 사용하는 부분만을 표현한 타입."""
+    """Subset of MR changes response used by this project."""
 
     changes: List[GitDiffChange]
 
 
 class ChatMessageDict(TypedDict):
-    """LLM에 전달하는 단일 메시지 구조 (OpenAI 스타일)."""
+    """Single chat message payload."""
 
     role: str
     content: str
 
 
 class LLMReviewResult(TypedDict, total=False):
-    """LLM 리뷰 결과 텍스트와 호출 메타데이터 구조."""
+    """LLM response content plus metadata."""
 
     content: str
     provider: str

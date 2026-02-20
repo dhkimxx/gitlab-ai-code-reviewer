@@ -16,4 +16,4 @@ ENV PATH="/app/.venv/bin:${PATH}"
 
 EXPOSE 9655
 
-CMD ["gunicorn", "--bind", "0.0.0.0:9655", "src.main:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:9655", "src.app.main:app"]

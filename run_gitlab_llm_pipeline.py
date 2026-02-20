@@ -1,20 +1,4 @@
-"""GitLab MR diff를 가져와 LLM 리뷰 파이프라인을 직접 실행하는 스크립트.
-
-프로젝트 루트의 .env(또는 환경 변수)에서 다음 값을 읽어 사용한다.
-- GITLAB_URL
-- GITLAB_ACCESS_TOKEN
-- GITLAB_TEST_PROJECT_ID
-- GITLAB_TEST_MERGE_REQUEST_IID
-- LLM_PROVIDER, LLM_MODEL 및 provider별 필수 API 키
-
-사용 예:
-
-    uv run python run_gitlab_llm_pipeline.py
-
-또는 가상환경이 활성화된 상태에서:
-
-    python run_gitlab_llm_pipeline.py
-"""
+"""GitLab MR diff를 가져와 LLM 리뷰 파이프라인을 직접 실행하는 스크립트."""
 
 from __future__ import annotations
 
@@ -24,9 +8,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.gitlab_client import get_merge_request_changes
-from src.review_chain import get_review_chain
-from src.types import GitDiffChange, MergeRequestChangesResponse, LLMReviewResult
+from src.app.config import AppSettings
+from src.domains.review.chain import ReviewChain
+from src.infra.clients.gitlab import GitLabClient, GitLabClientConfig
+from src.infra.clients.llm import LLMClient, LLMClientConfig
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -57,48 +42,65 @@ def _setup_logging() -> logging.Logger:
 
 
 def main() -> None:
-    """GitLab MR diff를 기반으로 LLM 리뷰를 생성하고 콘솔에 출력한다."""
-
     logger = _setup_logging()
+    settings = AppSettings.from_env(require_webhook_secret=False)
 
-    base_url = _require_env("GITLAB_URL")
-    access_token = _require_env("GITLAB_ACCESS_TOKEN")
     project_id_raw = _require_env("GITLAB_TEST_PROJECT_ID")
     mr_iid_raw = _require_env("GITLAB_TEST_MERGE_REQUEST_IID")
 
     try:
         project_id = int(project_id_raw)
         merge_request_iid = int(mr_iid_raw)
-    except ValueError as exc:  # noqa: TRY003 - 환경 변수 검증용 단순 래핑
+    except ValueError as exc:  # noqa: TRY003 - env validation wrapper
         raise ValueError(
-            "GITLAB_TEST_PROJECT_ID and GITLAB_TEST_MERGE_REQUEST_IID must be integers",
+            "GITLAB_TEST_PROJECT_ID and GITLAB_TEST_MERGE_REQUEST_IID must be integers"
         ) from exc
 
-    api_base_url = f"{base_url.rstrip('/')}/api/v4"
+    gitlab_client = GitLabClient(
+        GitLabClientConfig(
+            api_base_url=settings.gitlab_api_base_url,
+            access_token=settings.gitlab_access_token,
+            timeout_seconds=settings.gitlab_request_timeout_seconds,
+        )
+    )
+    llm_client = LLMClient(
+        LLMClientConfig(
+            provider=settings.llm_provider,
+            model=settings.llm_model,
+            timeout_seconds=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+            openai_api_key=settings.openai_api_key,
+            google_api_key=settings.google_api_key,
+            ollama_base_url=settings.ollama_base_url,
+            openrouter_api_key=settings.openrouter_api_key,
+            openrouter_base_url=settings.openrouter_base_url,
+        )
+    )
 
     logger.info(
         "Fetching merge_request changes: base_url=%s, project_id=%s, mr_iid=%s",
-        api_base_url,
+        settings.gitlab_api_base_url,
         project_id,
         merge_request_iid,
     )
 
-    mr_changes: MergeRequestChangesResponse = get_merge_request_changes(
-        api_base_url=api_base_url,
-        access_token=access_token,
+    mr_changes = gitlab_client.get_merge_request_changes(
         project_id=project_id,
         merge_request_iid=merge_request_iid,
     )
 
-    changes: list[GitDiffChange] = mr_changes.get("changes", [])
+    changes = mr_changes.get("changes", [])
     if not changes:
         logger.warning("No changes found in target merge request; nothing to review.")
         return
 
     logger.info("Running review_chain with %s changes", len(changes))
 
-    review_chain = get_review_chain()
-    result: LLMReviewResult = review_chain.invoke(changes)
+    review_chain = ReviewChain(
+        llm_client=llm_client,
+        system_instruction=settings.review_system_prompt,
+    )
+    result = review_chain.invoke(changes)
 
     content = (result.get("content") or "").strip()
 

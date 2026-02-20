@@ -1,7 +1,6 @@
-import os
 from typing import List
 
-from .types import ChatMessageDict, GitDiffChange
+from src.shared.types import ChatMessageDict, GitDiffChange
 
 
 DEFAULT_SYSTEM_INSTRUCTION = """
@@ -64,19 +63,10 @@ VERDICT RULE: (판정 규칙)
 """
 
 
-def _get_system_instruction() -> str:
-    value = os.environ.get("REVIEW_SYSTEM_PROMPT")
-    if value is None or not value.strip():
-        return DEFAULT_SYSTEM_INSTRUCTION
-    return value
-
-
 def format_file_header(change: GitDiffChange) -> str:
-    """변경된 파일의 메타데이터(경로, 상태)를 기반으로 사람이 읽기 좋은 헤더를 생성한다."""
     old_path = change.get("old_path")
     new_path = change.get("new_path")
 
-    # GitLab/GitHub API 플래그 확인 (없을 경우 경로 비교로 추론)
     is_new = change.get("new_file", False)
     is_deleted = change.get("deleted_file", False)
     is_renamed = change.get("renamed_file", False) or (
@@ -90,20 +80,18 @@ def format_file_header(change: GitDiffChange) -> str:
     if is_renamed:
         return f"🚚 **RENAMED**: `{old_path}` ➡️ `{new_path}`"
 
-    # 일반적인 수정 (경로 변경 없음)
     return f"📝 **MODIFIED**: `{new_path}`"
 
 
-def generate_review_prompt(changes: List[GitDiffChange]) -> List[ChatMessageDict]:
-    """Git 변경 사항 리스트를 LLM 리뷰용 messages 포맷으로 변환한다."""
-
-    # 1. Diff 데이터 전처리 (파일 상태 및 코드 블록 포맷팅)
+def generate_review_prompt(
+    changes: List[GitDiffChange],
+    *,
+    system_instruction: str | None = None,
+) -> List[ChatMessageDict]:
     formatted_changes: List[str] = []
     for change in changes:
         header = format_file_header(change)
         diff_content = change.get("diff", "")
-
-        # 내용이 없거나 바이너리 등의 경우에 대한 기본 메시지
         if not str(diff_content).strip():
             diff_content = "(No content changes or binary file)"
 
@@ -111,16 +99,13 @@ def generate_review_prompt(changes: List[GitDiffChange]) -> List[ChatMessageDict
 
     changes_string = "\n\n".join(formatted_changes)
 
-    system_instruction = _get_system_instruction()
-    messages: List[ChatMessageDict] = [
+    return [
         {
             "role": "system",
-            "content": system_instruction,
+            "content": system_instruction or DEFAULT_SYSTEM_INSTRUCTION,
         },
         {
             "role": "user",
             "content": f"Review the following git diffs:\n\n{changes_string}",
         },
     ]
-
-    return messages
