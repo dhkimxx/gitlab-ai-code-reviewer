@@ -31,12 +31,15 @@ def _settings() -> AppSettings:
         review_max_requests_per_minute=2,
         review_worker_concurrency=1,
         review_max_pending_jobs=100,
+        review_max_pending_jobs_hard_limit=200,
         refactor_suggestion_max_requests_per_minute=1,
         refactor_suggestion_worker_concurrency=1,
         refactor_suggestion_max_pending_jobs=50,
+        refactor_suggestion_max_pending_jobs_hard_limit=100,
         refactor_suggestion_max_files=20,
         refactor_suggestion_max_file_chars=12000,
         refactor_suggestion_max_total_chars=60000,
+        worker_stuck_threshold_seconds=600.0,
         llm_provider="openai",
         llm_model="gpt-5-mini",
         llm_timeout_seconds=300.0,
@@ -88,3 +91,34 @@ def test_webhook_routes_push() -> None:
     )
     assert resp.status_code == 200
     assert orchestrator.push_called is True
+
+
+class _Rejecting503Orchestrator:
+    def handle_merge_request_event(self, payload):
+        return "Service Unavailable: review queue full", 503
+
+    def handle_push_event(self, payload):
+        return "Service Unavailable: review worker stuck", 503
+
+
+def test_webhook_propagates_503_from_orchestrator() -> None:
+    """Back-pressure from the queue/health layer must reach GitLab as 503."""
+    app = Flask(__name__)
+    register_webhook_routes(app, settings=_settings(), orchestrator=_Rejecting503Orchestrator())
+    client = app.test_client()
+
+    mr_resp = client.post(
+        "/webhook",
+        headers={"X-Gitlab-Token": "secret"},
+        json={"object_kind": "merge_request", "object_attributes": {"action": "open"}},
+    )
+    assert mr_resp.status_code == 503
+    assert b"queue full" in mr_resp.data
+
+    push_resp = client.post(
+        "/webhook",
+        headers={"X-Gitlab-Token": "secret"},
+        json={"object_kind": "push"},
+    )
+    assert push_resp.status_code == 503
+    assert b"worker stuck" in push_resp.data

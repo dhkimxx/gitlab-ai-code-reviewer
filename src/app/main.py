@@ -88,6 +88,7 @@ def create_app() -> Flask:
             max_requests_per_minute=settings.review_max_requests_per_minute,
             worker_concurrency=settings.review_worker_concurrency,
             max_pending_jobs_soft_limit=settings.review_max_pending_jobs,
+            max_pending_jobs_hard_limit=settings.review_max_pending_jobs_hard_limit,
         )
 
     refactor_suggestion_queue: InProcessWorkerQueue[RefactorSuggestionReviewTask] | None = None
@@ -98,6 +99,7 @@ def create_app() -> Flask:
             max_requests_per_minute=settings.refactor_suggestion_max_requests_per_minute,
             worker_concurrency=settings.refactor_suggestion_worker_concurrency,
             max_pending_jobs_soft_limit=settings.refactor_suggestion_max_pending_jobs,
+            max_pending_jobs_hard_limit=settings.refactor_suggestion_max_pending_jobs_hard_limit,
         )
 
     orchestrator = WebhookOrchestrator(
@@ -106,6 +108,7 @@ def create_app() -> Flask:
         review_queue=review_queue,
         refactor_suggestion_queue=refactor_suggestion_queue,
         refactor_suggestion_state_repo=refactor_suggestion_state_repo,
+        worker_stuck_threshold_seconds=settings.worker_stuck_threshold_seconds,
     )
 
     app = Flask(__name__)

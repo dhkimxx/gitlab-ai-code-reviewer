@@ -77,7 +77,9 @@ def test_create_llm_ollama_uses_chatollama(monkeypatch: pytest.MonkeyPatch) -> N
     assert _DummyChatModel.last_init_kwargs is not None
     assert _DummyChatModel.last_init_kwargs["model"] == "dummy-model"
     assert _DummyChatModel.last_init_kwargs["base_url"] == "http://localhost:11434"
-    assert "request_timeout" in _DummyChatModel.last_init_kwargs
+    # `ChatOllama` ignores `request_timeout`; the timeout must be threaded
+    # through `client_kwargs` so it reaches the underlying httpx client.
+    assert _DummyChatModel.last_init_kwargs["client_kwargs"] == {"timeout": 300.0}
 
 
 def test_create_llm_openrouter_uses_chatopenai_with_openrouter_base(

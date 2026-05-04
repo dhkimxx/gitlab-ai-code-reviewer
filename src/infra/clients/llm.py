@@ -117,11 +117,16 @@ class LLMClient:
         )
 
     def _create_ollama_llm(self, temperature: float) -> ChatOllama:
+        # `ChatOllama` does not expose a `timeout`/`request_timeout` field;
+        # any such kwarg is silently dropped, leaving the underlying httpx
+        # client with `timeout=None` (workers hung indefinitely on recv).
+        # `client_kwargs` is the only documented hook that reaches the
+        # `ollama.Client`/httpx layer, so the timeout must travel through it.
         return ChatOllama(
             model=self._model,
             temperature=temperature,
             base_url=self._ollama_base_url,
-            request_timeout=self._timeout_seconds,
+            client_kwargs={"timeout": self._timeout_seconds},
             max_retries=self._max_retries,
         )
 
