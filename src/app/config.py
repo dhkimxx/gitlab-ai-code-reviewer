@@ -79,13 +79,17 @@ class AppSettings:
     review_max_requests_per_minute: int
     review_worker_concurrency: int
     review_max_pending_jobs: int
+    review_max_pending_jobs_hard_limit: int
 
     refactor_suggestion_max_requests_per_minute: int
     refactor_suggestion_worker_concurrency: int
     refactor_suggestion_max_pending_jobs: int
+    refactor_suggestion_max_pending_jobs_hard_limit: int
     refactor_suggestion_max_files: int
     refactor_suggestion_max_file_chars: int
     refactor_suggestion_max_total_chars: int
+
+    worker_stuck_threshold_seconds: float
 
     llm_provider: str
     llm_model: str
@@ -117,6 +121,17 @@ class AppSettings:
 
         llm_model = _get_optional_str("LLM_MODEL") or "gpt-5-mini"
 
+        # Pulled out so the hard-limit/stuck-threshold defaults can derive from them.
+        review_max_pending_jobs = _get_int(
+            "REVIEW_MAX_PENDING_JOBS", 100, min_value=1
+        )
+        refactor_suggestion_max_pending_jobs = _get_int(
+            "REFACTOR_SUGGESTION_MAX_PENDING_JOBS", 50, min_value=1
+        )
+        llm_timeout_seconds = _get_float(
+            "LLM_TIMEOUT_SECONDS", 300.0, min_value=0.001
+        )
+
         settings = cls(
             log_level=(_get_optional_str("LOG_LEVEL") or "INFO").upper(),
             gitlab_access_token=_get_required_str("GITLAB_ACCESS_TOKEN"),
@@ -136,15 +151,23 @@ class AppSettings:
             review_worker_concurrency=_get_int(
                 "REVIEW_WORKER_CONCURRENCY", 1, min_value=1
             ),
-            review_max_pending_jobs=_get_int("REVIEW_MAX_PENDING_JOBS", 100, min_value=1),
+            review_max_pending_jobs=review_max_pending_jobs,
+            review_max_pending_jobs_hard_limit=_get_int(
+                "REVIEW_MAX_PENDING_JOBS_HARD_LIMIT",
+                review_max_pending_jobs * 2,
+                min_value=0,
+            ),
             refactor_suggestion_max_requests_per_minute=_get_int(
                 "REFACTOR_SUGGESTION_MAX_REQUESTS_PER_MINUTE", 1, min_value=1
             ),
             refactor_suggestion_worker_concurrency=_get_int(
                 "REFACTOR_SUGGESTION_WORKER_CONCURRENCY", 1, min_value=1
             ),
-            refactor_suggestion_max_pending_jobs=_get_int(
-                "REFACTOR_SUGGESTION_MAX_PENDING_JOBS", 50, min_value=1
+            refactor_suggestion_max_pending_jobs=refactor_suggestion_max_pending_jobs,
+            refactor_suggestion_max_pending_jobs_hard_limit=_get_int(
+                "REFACTOR_SUGGESTION_MAX_PENDING_JOBS_HARD_LIMIT",
+                refactor_suggestion_max_pending_jobs * 2,
+                min_value=0,
             ),
             refactor_suggestion_max_files=_get_int("REFACTOR_SUGGESTION_MAX_FILES", 20, min_value=1),
             refactor_suggestion_max_file_chars=_get_int(
@@ -155,8 +178,13 @@ class AppSettings:
             ),
             llm_provider=provider,
             llm_model=llm_model,
-            llm_timeout_seconds=_get_float("LLM_TIMEOUT_SECONDS", 300.0, min_value=0.001),
+            llm_timeout_seconds=llm_timeout_seconds,
             llm_max_retries=_get_int("LLM_MAX_RETRIES", 0, min_value=0),
+            worker_stuck_threshold_seconds=_get_float(
+                "WORKER_STUCK_THRESHOLD_SECONDS",
+                llm_timeout_seconds * 2,
+                min_value=0.0,
+            ),
             openai_api_key=_get_optional_str("OPENAI_API_KEY"),
             google_api_key=_get_optional_str("GOOGLE_API_KEY"),
             ollama_base_url=_get_optional_str("OLLAMA_BASE_URL")

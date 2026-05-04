@@ -28,6 +28,27 @@ def test_app_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.review_max_requests_per_minute == 2
     assert settings.refactor_suggestion_max_files == 20
 
+    # New back-pressure / liveness defaults derive from existing settings.
+    assert settings.review_max_pending_jobs_hard_limit == settings.review_max_pending_jobs * 2
+    assert (
+        settings.refactor_suggestion_max_pending_jobs_hard_limit
+        == settings.refactor_suggestion_max_pending_jobs * 2
+    )
+    assert settings.worker_stuck_threshold_seconds == settings.llm_timeout_seconds * 2
+
+
+def test_app_settings_back_pressure_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_min_env(monkeypatch)
+    monkeypatch.setenv("REVIEW_MAX_PENDING_JOBS_HARD_LIMIT", "999")
+    monkeypatch.setenv("REFACTOR_SUGGESTION_MAX_PENDING_JOBS_HARD_LIMIT", "0")
+    monkeypatch.setenv("WORKER_STUCK_THRESHOLD_SECONDS", "42.5")
+
+    settings = AppSettings.from_env()
+
+    assert settings.review_max_pending_jobs_hard_limit == 999
+    assert settings.refactor_suggestion_max_pending_jobs_hard_limit == 0  # disabled
+    assert settings.worker_stuck_threshold_seconds == 42.5
+
 
 def test_app_settings_missing_required_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITLAB_ACCESS_TOKEN", raising=False)
